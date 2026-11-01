@@ -8,6 +8,17 @@ This repository investigates **mean prediction**, **representation variance**, a
 2. Does the same behavior occur in a toy JEPA with encoders?
 3. How does target-encoder representation variance change during training?
 4. Does a decrease in representation variance coincide with a loss of linearly recoverable input information?
+5. Does mean prediction persist when the context contains exploitable nonlinear predictive information?
+
+## Experimental overview
+
+| Experiment | Main test | Key observation |
+| :--- | :--- | :--- |
+| Exp01 | Conditional-mean prediction with a direct MLP | Mean prediction is appropriate when context is uninformative. |
+| Exp02 | Frozen vs. EMA target encoders in toy JEPA | Constant-like predictions at `rho = 0` do not require constant target embeddings. |
+| Exp03 | Target representation variance during training | EMA variance can shrink or grow depending on data correlation. |
+| Exp04 | Linear recovery of target inputs | Reduced variance did not reduce linear recoverability in this setup. |
+| Exp05 | Predictable nonlinear target | Toy JEPA learned the available predictive relationship across three seeds. |
 
 ## Common setup
 
@@ -22,7 +33,7 @@ $$
 - `rho = 0.5`: `X` provides partial information about `Y`.
 - `rho = 1`: `Y = X`.
 
-For Exp02–04, the toy JEPA consists of a context encoder, target encoder, and predictor:
+For Exp02–05, the toy JEPA consists of a context encoder, target encoder, and predictor:
 
 $$
 z_x = f_\theta(X), \qquad z_y = f_{\bar\theta}(Y), \qquad \hat z_y = g_\phi(z_x).
@@ -96,11 +107,8 @@ Thus, at `rho = 0`, the optimal output is the constant mean `0`.
 Define the average variance across the `d` representation dimensions and its initial-normalized ratio:
 
 $$
-V(t)=\frac{1}{d}\sum_{j=1}^{d}\mathrm{Var}(z_{y,j}^{(t)})
-$$
-
-$$
-R(t)=\frac{V(t)}{V(0)}
+V(t)=\frac{1}{d}\sum_{j=1}^{d}\mathrm{Var}(z_{y,j}^{(t)}),
+\qquad R(t)=\frac{V(t)}{V(0)}.
 $$
 
 | rho | Target mode | Initial variance | Final variance | Final ratio | Final prediction MSE |
@@ -147,47 +155,95 @@ Initial and final encoders are evaluated separately. Probe features are standard
 
 **Important limitation:** A linear probe measures only *linearly decodable* information. It cannot prove full information preservation. Moreover, the initial probe already performs almost perfectly, making this a relatively easy test.
 
+## Exp05 — Nontrivial mean prediction
+
+**Script:** `experiments/exp05_nontrivial_mean_prediction.py`
+
+**Why:** In Exp01–04, mean-like predictions arose when context and target were independent, so they were consistent with the MSE-optimal conditional mean. Exp05 tests whether the predictor still defaults to the mean when useful predictive information exists.
+
+Generate a nonlinear, deterministic pair:
+
+$$
+X\sim\mathcal N(0,1),\qquad Y=X^2-1.
+$$
+
+Here, the unconditional mean of `Y` is zero, but `Y` is fully determined by `X`. The theoretical direct-regression mean baseline MSE is `Var(Y) = 2`, while a perfect nonlinear predictor has zero MSE.
+
+Compare a direct MLP trained to predict `Y` against toy JEPA models with frozen or EMA target encoders. The JEPA models predict **target embeddings**, not raw `Y`, so their absolute MSEs are **not directly comparable** to the direct MLP or across encoder modes. Each model is evaluated against its own mean baseline in the same output space.
+
+### Direct MLP results
+
+| Seed | Prediction MSE | Mean-baseline MSE |
+| ---: | ---: | ---: |
+| 42 | 0.000127 | 1.897328 |
+| 123 | 0.000138 | 2.195834 |
+| 456 | 0.000286 | 2.054868 |
+
+### Toy JEPA results
+
+| Seed | Target mode | Prediction MSE | Mean-baseline MSE | Prediction variance | Target variance |
+| ---: | :--- | ---: | ---: | ---: | ---: |
+| 42 | Frozen | 0.000044 | 0.050961 | 0.050952 | 0.050961 |
+| 42 | EMA | 0.000137 | 1.415847 | 1.419923 | 1.415847 |
+| 123 | Frozen | 0.000039 | 0.055249 | 0.055346 | 0.055249 |
+| 123 | EMA | 0.000079 | 1.258154 | 1.259657 | 1.258154 |
+| 456 | Frozen | 0.000041 | 0.061238 | 0.061204 | 0.061238 |
+| 456 | EMA | 0.000105 | 2.243714 | 2.241472 | 2.243714 |
+
+Relative improvement over a mean baseline is defined as:
+
+$$
+I = 1-\frac{L_{\mathrm{pred}}}{L_{\mathrm{mean}}}.
+$$
+
+All toy JEPA runs achieve more than **99.9%** relative improvement over their respective mean baselines (using the reported rounded values). Their prediction variances also closely match their target variances, and prediction errors are small. Thus, nearly constant prediction was **not observed** in this predictable nonlinear setting.
+
+**Caveats:** The reported mean baselines use the evaluation-set mean; this is a descriptive reference, not a strictly train-estimated held-out baseline. The target encoder may change its output scale under EMA, so raw loss values alone cannot establish representation quality or superiority of one encoder mode. The result is limited to this one-dimensional synthetic task and three seeds.
+
+**What we learned:** A simplified JEPA can exploit nonlinear predictive information under the tested conditions. This does **not** establish that real JEPA systems are universally free from pathological collapse.
+
 ## Overall findings
 
-| Experiment | Question | Supported conclusion |
+| Experiment | Research question | Supported finding |
 | :--- | :--- | :--- |
-| Exp01 | When does MSE regression predict the mean? | When context lacks predictive information, mean prediction is optimal. |
-| Exp02 | Does mean prediction also occur in toy JEPA? | Yes, at `rho = 0`, despite nonconstant target embeddings. |
-| Exp03 | Does target representation variance change during training? | Yes, EMA variance changes differently across correlation conditions. |
-| Exp04 | Does reduced variance imply lost recoverability? | No decrease in linear-probe recovery was observed in these runs. |
+| Exp01 | When is mean prediction MSE-optimal? | With independent context and target, a constant conditional mean is optimal. |
+| Exp02 | Does toy JEPA exhibit mean-like predictions? | Yes, at `rho = 0`, even with nonconstant target embeddings. |
+| Exp03 | How does target representation variance evolve? | EMA variance decreased at `rho = 0` and increased at `rho = 1`. |
+| Exp04 | Does variance reduction necessarily reduce recoverability? | No reduction in linear recovery was observed in these toy runs. |
+| Exp05 | Does toy JEPA ignore usable nonlinear predictive information? | No: all tested runs substantially beat the mean baseline. |
 
-### What these experiments do **not** establish
+### Final conclusion
 
-- Pathological mean collapse in actual I-JEPA or other JEPA models.
-- That EMA necessarily causes representation collapse.
-- That reduced variance causes mean prediction.
-- That all input information is preserved.
-- That a scratchpad would improve JEPA.
+**No evidence of pathological predictor mean collapse was found in the tested toy JEPA configurations.** Mean-like prediction when context and target are independent is consistent with the MSE optimum. When a deterministic nonlinear relation was introduced, the toy JEPA learned to predict the target representation accurately.
 
-### Limitations
+This is a **limited negative result**, not a proof that JEPA cannot collapse. In particular, **predictor mean prediction**, **target-encoder representation collapse**, and **information loss** are different phenomena and should not be conflated.
 
-- One-dimensional synthetic Gaussian data, not realistic images or temporal sequences.
-- Simplified JEPA, without the full I-JEPA masking/position-conditioning setup.
-- One random seed per condition; replication is still needed.
-- Exp04's linear reconstruction task is nearly solved even before training.
+### Scope and limitations
 
-## Next step — Exp05: Nontrivial mean prediction
+- Synthetic **one-dimensional** inputs and simplified JEPA networks, not full I-JEPA.
+- No realistic masking, spatial structure, temporal sequences, or state-tracking tasks.
+- Exp01–04 are limited runs; Exp05 uses three random seeds.
+- Exp04 tests **linear decodability** of a simple input, not complete information preservation.
+- Variance changes can reflect scaling rather than loss of predictive content.
+- Exp05's baseline uses evaluation-set means; stronger future evaluations should estimate baselines from training data.
+- These experiments do not test whether an explicit scratchpad benefits JEPA.
 
-**Question:** Can the toy JEPA produce nearly constant predictions **even when its context contains exploitable predictive information**?
+## Research status and next direction
 
-Design a predictable but nontrivial context-target relationship and compare mean baselines, a capable predictor, and toy JEPA under matched evaluation targets. If the JEPA remains at the mean baseline while a comparable model performs better, investigate optimization, architecture, and encoder behavior before attributing the failure to JEPA generally.
+**Mean-prediction investigation: completed for this toy setting (Exp01–05).**
 
-The longer-term research direction is **temporal state tracking** and whether an explicit **scratchpad** helps, but neither has been evaluated in Exp01–04.
+**Next question:** Can a JEPA-style model track and update hidden states across time when the current observation is insufficient on its own? A future temporal state-tracking experiment should compare a memoryless baseline, a history-aware model, and—only after establishing a clear need—a scratchpad-augmented model. This is a proposed next step, **not a result of Exp01–05**.
 
-## Run experiments
+## Reproduce the experiments
 
-From the repository root, with the project's virtual environment activated:
+From the repository root, activate the project's virtual environment and run:
 
 ```bash
 python experiments/exp01_mean_prediction.py
 python experiments/exp02_jepa_collapse.py
 python experiments/exp03_collapse_dynamics.py
 python experiments/exp04_representation_probe.py
+python experiments/exp05_nontrivial_mean_prediction.py
 ```
 
-**Note:** Mathematical expressions use GitHub-supported `$$ ... $$` Markdown math blocks. For correct rendering, view `README.md` on GitHub rather than in a plain-text terminal.
+**Markdown compatibility:** Equations use GitHub math blocks (`$$`) and supported math commands. Tables use standard GitHub Flavored Markdown.
