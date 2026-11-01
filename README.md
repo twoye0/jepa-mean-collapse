@@ -1,5 +1,3 @@
-# jepa-mean-collapse
-
 # Research Question
 
 Does JEPA exhibit mean-prediction collapse, and under what conditions does it occur?
