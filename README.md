@@ -96,8 +96,11 @@ Thus, at `rho = 0`, the optimal output is the constant mean `0`.
 Define the average variance across the `d` representation dimensions and its initial-normalized ratio:
 
 $$
-V(t)=\frac{1}{d}\sum_{j=1}^{d}\operatorname{Var}(z_{y,j}^{(t)}),
-\qquad R(t)=\frac{V(t)}{V(0)}.
+V(t)=\frac{1}{d}\sum_{j=1}^{d}\mathrm{Var}(z_{y,j}^{(t)})
+$$
+
+$$
+R(t)=\frac{V(t)}{V(0)}
 $$
 
 | rho | Target mode | Initial variance | Final variance | Final ratio | Final prediction MSE |
